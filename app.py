@@ -15,13 +15,13 @@ def get_base64_image(image_path):
 
 # Get base64 encoded images
 bg_image = get_base64_image("gb.jpg")
-bot_logo = get_base64_image("bot_4712206.png")
+bot_logo = get_base64_image("AskGiraffidae.png")
 hamburger_icon = get_base64_image("hamburger.svg")
 
 # Page configuration
 st.set_page_config(
-    page_title="น้องบอท - ผู้ช่วยหลักสูตรคณะครุศาสตร์อุตสาหกรรม",
-    page_icon="bot_4712206.png",
+    page_title="AskGiraffidae - ผู้ช่วยหลักสูตรคณะครุศาสตร์อุตสาหกรรม",
+    page_icon="AskGiraffidae.png",
     layout="wide",
     initial_sidebar_state="auto"
 )
@@ -442,7 +442,7 @@ show_context = False
 
 # Sidebar Configuration
 with st.sidebar:
-    st.markdown("### 🤖 น้องบอท")
+    st.markdown("### 🤖 AskGiraffidae")
     st.markdown('<p style="color: #047857; font-size: 0.95rem;">ผู้ช่วยให้คำปรึกษาหลักสูตร<br>คณะครุศาสตร์อุตสาหกรรม มจพ.</p>', unsafe_allow_html=True)
 
     st.markdown("---")
@@ -480,7 +480,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # Header
-st.markdown(f'<div class="main-header"><img src="data:image/png;base64,{bot_logo}" style="width: 80px; height: 80px; vertical-align: middle; margin-right: 15px;"> น้องบอท</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="main-header"><img src="data:image/png;base64,{bot_logo}" style="width: 80px; height: 80px; vertical-align: middle; margin-right: 15px;"> AskGiraffidae</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">ผู้ช่วยให้คำปรึกษาหลักสูตร คณะครุศาสตร์อุตสาหกรรม มจพ.</div>', unsafe_allow_html=True)
 
 # Main chat area
@@ -498,7 +498,7 @@ for i, message in enumerate(st.session_state.messages):
     else:
         st.markdown(f'''
         <div class="chat-message bot-message">
-            <div class="message-label bot-label"><img src="data:image/png;base64,{bot_logo}" style="width: 28px; height: 28px; vertical-align: middle; margin-right: 8px;"> น้องบอท:</div>
+            <div class="message-label bot-label"><img src="data:image/png;base64,{bot_logo}" style="width: 28px; height: 28px; vertical-align: middle; margin-right: 8px;"> AskGiraffidae:</div>
             <div>{message["content"]}</div>
         </div>
         ''', unsafe_allow_html=True)
