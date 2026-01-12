@@ -1,4 +1,4 @@
-# 🤖 AskGiraffidae - Chatbot UI with Streamlit
+# 🤖 Askgiraffe - Chatbot UI with Streamlit
 
 ระบบแชทบอทสำหรับให้คำปรึกษาหลักสูตรคณะครุศาสตร์อุตสาหกรรม มจพ. พร้อม UI ที่สวยงามและใช้งานง่าย
 
@@ -68,7 +68,7 @@ http://localhost:8501
 ### 1. พื้นที่แชท (หน้าหลัก)
 - พิมพ์คำถามในช่อง chat input ด้านล่าง
 - กด Enter หรือคลิกปุ่มส่ง
-- รอAskGiraffidaeตอบคำถาม (ใช้เวลาประมาณ 5-10 วินาที)
+- รอAskgiraffeตอบคำถาม (ใช้เวลาประมาณ 5-10 วินาที)
 
 ### 2. Sidebar (แถบด้านซ้าย)
 
