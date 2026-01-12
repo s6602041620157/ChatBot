@@ -611,7 +611,7 @@ class TyphoonChatbot:
             response = self.client.chat.completions.create(
                 model="typhoon-v2.1-12b-instruct",
                 messages=messages,
-                max_tokens=4096,
+                max_tokens=16000,
                 temperature=0.6
             )
 
