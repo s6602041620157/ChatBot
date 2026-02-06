@@ -363,10 +363,12 @@ class TyphoonChatbot:
     """Main chatbot class using Typhoon API - with keyword-enhanced search"""
 
     def __init__(self, api_key: str, knowledge_base: HybridKnowledgeBase,
-                 use_compression: bool = True):
+                 use_compression: bool = True, model_name: Optional[str] = None):
         self.api_key = api_key
         self.knowledge_base = knowledge_base
         self.use_compression = use_compression
+        self.model_name = model_name or os.getenv("TYPHOON_MODEL", "typhoon-v2.5-30b-a3b-instruct")
+        self.base_url = os.getenv("TYPHOON_BASE_URL", "https://api.opentyphoon.ai/v1")
         self.setup_typhoon()
         self.conversation_history = []
 
@@ -375,7 +377,7 @@ class TyphoonChatbot:
         try:
             self.client = OpenAI(
                 api_key=self.api_key,
-                base_url="https://api.opentyphoon.ai/v1"
+                base_url=self.base_url
             )
             print("✅ เชื่อมต่อ Typhoon API สำเร็จ!")
         except Exception as e:
@@ -500,13 +502,14 @@ class TyphoonChatbot:
 [ข้อความที่สกัดออกมา (ถ้า YES)]"""
 
             try:
+                
                 response = self.client.chat.completions.create(
-                    model="typhoon-v2.5-30b-a3b-instruct",
+                    model=self.model_name,
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that analyzes text relevance. Answer in Thai."},
                         {"role": "user", "content": compression_prompt}
                     ],
-                    max_tokens=256,
+                    max_tokens=512,
                     temperature=0.3
                 )
                 response_text = response.choices[0].message.content.strip()
@@ -609,7 +612,7 @@ class TyphoonChatbot:
 
             # Generate response using Typhoon
             response = self.client.chat.completions.create(
-                model="typhoon-v2.1-12b-instruct",
+                model=self.model_name,
                 messages=messages,
                 max_tokens=16000,
                 temperature=0.6
@@ -627,6 +630,8 @@ class TyphoonChatbot:
 
         except Exception as e:
             print(f"เกิดข้อผิดพลาด: {e}")
+            if "model not found" in str(e).lower():
+                print("💡 ตรวจสอบค่า TYPHOON_MODEL ให้ตรงกับโมเดลที่ใช้งานได้")
             return "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
 
     def get_conversation_history(self) -> List[Dict[str, str]]:
@@ -668,7 +673,7 @@ def main():
         print("=" * 80)
         print("📚 ระบบ: Hybrid Retrieval + Keyword Matching")
         print("🔍 เทคโนโลยี: BM25 (keyword) + Vector (semantic) + Keyword Boost + Cross-Encoder")
-        print("🌪️  AI Model: Typhoon v2.1-12b-instruct")
+        print(f"🌪️  AI Model: {chatbot.model_name}")
         print("-" * 80)
         print("📝 คุณสามารถถามคำถามเกี่ยวกับหลักสูตรวิศวกรรมโยธาและการศึกษาได้")
         print("💡 พิมพ์ 'quit', 'exit', หรือ 'ออก' เพื่อปิดโปรแกรม")

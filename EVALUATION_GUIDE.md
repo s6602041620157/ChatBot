@@ -9,6 +9,8 @@
 - **Faithfulness**: ความน่าเชื่อถือของคำตอบที่อิงจาก context
 - **Answer Relevancy**: ความเกี่ยวข้องของคำตอบกับคำถาม
 
+> ใหม่: ถ้าต้องการประเมินแบบไม่พึ่ง LLM-as-judge ให้ใช้สคริปต์ `evaluate_statistical.py` (ดูหัวข้อ "โหมดสถิติ (ไม่ใช้ LLM)").
+
 ## การติดตั้ง
 
 ### 1. ติดตั้ง Dependencies
@@ -79,6 +81,23 @@ python3 evaluate_rag.py
 
 #### 4. Exit
 - ออกจากโปรแกรม
+
+### โหมดสถิติ (ไม่ใช้ LLM)
+
+หากต้องการประเมินด้วยเมตริกเชิงสถิติโดยไม่เรียก LLM สำหรับการให้คะแนน ใช้:
+
+```bash
+python3 evaluate_statistical.py
+```
+
+สคริปต์นี้จะคำนวณ:
+- answer_exact_match
+- answer_f1 (token-level)
+- answer_similarity (difflib ratio)
+- context_recall
+- context_hit_rate
+
+ผลลัพธ์จะสรุปบนหน้าจอและบันทึกไฟล์ JSON ใน `evaluation_results/` (ชื่อไฟล์ขึ้นต้น `deterministic_eval_*.json`)
 
 ## การแปลผลลัพธ์
 
