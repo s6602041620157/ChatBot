@@ -569,10 +569,10 @@ class TyphoonChatbot:
 
     @staticmethod
     def _build_qa_fallback_context(qa_match: Dict[str, Any]) -> str:
-        """Build context string when QA fallback is selected."""
+        """Build QA context string (primary source when a strong match is found)."""
         return (
             "ข้อมูลที่เกี่ยวข้องจากฐานความรู้:\n\n"
-            "QA_FALLBACK\n"
+            "QA_MATCH (ให้ยึดข้อมูลส่วนนี้เป็นหลัก)\n"
             f"คำถามที่ตรงกัน: {qa_match.get('question', '')}\n"
             f"คำตอบ: {qa_match.get('answer', '')}\n"
             f"หมวดหมู่: {qa_match.get('category', '')}\n"
@@ -580,9 +580,33 @@ class TyphoonChatbot:
             f"คะแนนความเกี่ยวข้อง: {qa_match.get('combined_score', 0.0):.3f}\n"
         )
 
+    def _build_combined_context(
+        self, qa_match: Dict[str, Any], relevant_knowledge: List[Dict[str, Any]]
+    ) -> str:
+        """Build context that prioritizes QA match and supplements with vector retrieval."""
+        qa_context = self._build_qa_fallback_context(qa_match).rstrip()
+        vector_context = self.knowledge_base.get_context_string(relevant_knowledge)
+
+        prefix = "ข้อมูลที่เกี่ยวข้องจากฐานความรู้:\n\n"
+        if vector_context.startswith(prefix):
+            vector_context = vector_context[len(prefix):]
+
+        vector_context = vector_context.strip()
+        if not vector_context:
+            return qa_context
+
+        return f"{qa_context}\n\nVECTOR_CONTEXT (ใช้เสริมรายละเอียด)\n{vector_context}"
+
     def _prepare_prompt_context(self, user_question: str) -> str:
         """Prepare retrieval context and routing metadata before generating prompt."""
         expanded_query = self.expand_query(user_question)
+        qa_match: Optional[Dict[str, Any]] = None
+        if self.qa_manager:
+            try:
+                qa_match = self.qa_manager.find_best_match(user_question, expanded_query=expanded_query)
+            except Exception as e:
+                print(f"⚠️ QA matching failed, fallback to vector-only path: {e}")
+
         relevant_knowledge = self.knowledge_base.search_knowledge(expanded_query, n_results=10)
         max_raw_vector_similarity = max(
             (
@@ -599,19 +623,27 @@ class TyphoonChatbot:
             "expanded_query": expanded_query,
             "max_raw_vector_similarity": max_raw_vector_similarity,
             "vector_fallback_threshold": self.vector_fallback_threshold,
-            "used_source": "vector",
+            "used_source": "vector_only",
+            "qa_match_found": bool(qa_match),
         }
 
-        if max_raw_vector_similarity < self.vector_fallback_threshold and self.qa_manager:
-            qa_match = self.qa_manager.find_best_match(user_question, expanded_query=expanded_query)
-            if qa_match:
-                qa_context = self._build_qa_fallback_context(qa_match)
-                self.last_response_sources = [{
-                    "source_type": "qa_fallback",
-                    **qa_match,
-                }]
-                self.last_routing_info["used_source"] = "qa_fallback"
-                return qa_context
+        if qa_match and relevant_knowledge:
+            qa_context = self._build_combined_context(qa_match, relevant_knowledge)
+            self.last_response_sources = (
+                [{"source_type": "qa_fallback", **qa_match}]
+                + [{"source_type": "vector", **item} for item in relevant_knowledge]
+            )
+            self.last_routing_info["used_source"] = "qa_plus_vector"
+            return qa_context
+
+        if qa_match:
+            qa_context = self._build_qa_fallback_context(qa_match)
+            self.last_response_sources = [{
+                "source_type": "qa_fallback",
+                **qa_match,
+            }]
+            self.last_routing_info["used_source"] = "qa_only"
+            return qa_context
 
         self.last_response_sources = [
             {"source_type": "vector", **item}
