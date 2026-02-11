@@ -10,6 +10,7 @@ langchain-openai>=0.0.5
 
 # OpenAI (required by RAGAS for evaluation)
 openai>=1.0.0
+jsonref>=1.1.0
 
 # Data handling
 datasets>=2.14.0

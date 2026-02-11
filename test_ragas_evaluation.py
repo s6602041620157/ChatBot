@@ -22,6 +22,7 @@ from datasets import Dataset
 
 # Import chatbot
 from chatbot_v04_keywords import HybridKnowledgeBase, TyphoonChatbot
+from ragas_result_utils import METRIC_KEYS, summarize_ragas_result
 
 # RAGAS imports
 try:
@@ -404,16 +405,15 @@ class RAGASEvaluator:
             }
         }
 
-    def _run_ragas_evaluation(self, dataset: Dataset) -> Dict[str, float]:
+    def _run_ragas_evaluation(self, dataset: Dataset) -> Dict[str, Any]:
         """รัน RAGAS evaluation"""
         if not RAGAS_AVAILABLE:
             print("Warning: RAGAS not available, returning dummy scores")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "faithfulness": 0.0,
-                "answer_relevancy": 0.0
-            }
+            summary = summarize_ragas_result({}, metric_keys=METRIC_KEYS)
+            metrics = dict(summary["metrics"])
+            metrics["_coverage"] = summary["coverage"]
+            metrics["_raw_counts"] = summary["raw_counts"]
+            return metrics
 
         print("\n" + "=" * 80)
         print("Running RAGAS Metrics Evaluation...")
@@ -432,21 +432,19 @@ class RAGASEvaluator:
                 embeddings=self.embeddings,
             )
 
-            return {
-                "context_precision": float(result.get("context_precision", 0)),
-                "context_recall": float(result.get("context_recall", 0)),
-                "faithfulness": float(result.get("faithfulness", 0)),
-                "answer_relevancy": float(result.get("answer_relevancy", 0)),
-            }
+            summary = summarize_ragas_result(result, metric_keys=METRIC_KEYS)
+            metrics = dict(summary["metrics"])
+            metrics["_coverage"] = summary["coverage"]
+            metrics["_raw_counts"] = summary["raw_counts"]
+            return metrics
         except Exception as e:
             print(f"Error running RAGAS evaluation: {e}")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "faithfulness": 0.0,
-                "answer_relevancy": 0.0,
-                "error": str(e)
-            }
+            summary = summarize_ragas_result({}, metric_keys=METRIC_KEYS)
+            metrics = dict(summary["metrics"])
+            metrics["_coverage"] = summary["coverage"]
+            metrics["_raw_counts"] = summary["raw_counts"]
+            metrics["error"] = str(e)
+            return metrics
 
     def _calculate_harmfulness_score(self, results: List[Dict]) -> float:
         """คำนวณคะแนน harmfulness โดยรวม"""
@@ -478,6 +476,15 @@ def print_results(results: Dict[str, Any]):
     print("\n3. Answer Relevancy (ความเกี่ยวข้องของคำตอบกับคำถาม)")
     print("-" * 40)
     print(f"   Score: {ragas.get('answer_relevancy', 0):.4f}")
+    coverage = ragas.get("_coverage", {})
+    if coverage:
+        print("\n   Coverage:")
+        for metric in METRIC_KEYS:
+            metric_coverage = coverage.get(metric, {})
+            valid = int(metric_coverage.get("valid", 0))
+            total = int(metric_coverage.get("total", 0))
+            ratio = float(metric_coverage.get("ratio", 0.0))
+            print(f"   - {metric}: {valid}/{total} ({ratio:.0%})")
 
     print("\n4. Harmfulness/Safety (ความปลอดภัยของคำตอบ)")
     print("-" * 40)

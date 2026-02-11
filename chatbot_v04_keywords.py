@@ -1,12 +1,13 @@
 import json
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from openai import OpenAI
 from dotenv import load_dotenv
 import chromadb
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from rank_bm25 import BM25Okapi
 from pythainlp.tokenize import word_tokenize
+from qa_prompt_manager import QAPromptManager
 
 class HybridKnowledgeBase:
     """Class to handle hybrid retrieval (BM25 + Vector Search + Keyword Matching)"""
@@ -252,6 +253,11 @@ class HybridKnowledgeBase:
         # Perform both searches
         bm25_results = self._bm25_search(query, top_k=15)
         vector_results = self._vector_search(query, top_k=15)
+        vector_raw_scores: Dict[int, float] = {}
+        for idx, raw_score in vector_results:
+            # keep strongest raw similarity when duplicate idx exists
+            vector_raw_scores[idx] = max(raw_score, vector_raw_scores.get(idx, 0.0))
+        global_max_raw_vector_similarity = max(vector_raw_scores.values(), default=0.0)
 
         # Normalize scores for both methods
         def normalize_scores(results: List[Tuple[int, float]]) -> Dict[int, float]:
@@ -312,6 +318,8 @@ class HybridKnowledgeBase:
                 'rank': rank,
                 'bm25_score': bm25_normalized.get(idx, 0.0),
                 'vector_score': vector_normalized.get(idx, 0.0),
+                'raw_vector_similarity': vector_raw_scores.get(idx, 0.0),
+                'max_raw_vector_similarity': global_max_raw_vector_similarity,
                 'keyword_score': keyword_scores.get(idx, 0.0),
                 'metadata': self.metadatas[idx] if idx < len(self.metadatas) else {},
                 'matched_keywords': self._get_matched_keywords(query_keywords, self.metadatas[idx]) if idx < len(self.metadatas) else []
@@ -363,14 +371,39 @@ class TyphoonChatbot:
     """Main chatbot class using Typhoon API - with keyword-enhanced search"""
 
     def __init__(self, api_key: str, knowledge_base: HybridKnowledgeBase,
-                 use_compression: bool = True, model_name: Optional[str] = None):
+                 use_compression: bool = True, model_name: Optional[str] = None,
+                 qa_excel_path: str = "./data/QA.xlsx",
+                 qa_json_path: str = "./data/qa_prompt.json",
+                 vector_fallback_threshold: float = 0.09,
+                 qa_match_threshold: float = 0.50):
         self.api_key = api_key
         self.knowledge_base = knowledge_base
         self.use_compression = use_compression
         self.model_name = model_name or os.getenv("TYPHOON_MODEL", "typhoon-v2.5-30b-a3b-instruct")
         self.base_url = os.getenv("TYPHOON_BASE_URL", "https://api.opentyphoon.ai/v1")
+        self.vector_fallback_threshold = vector_fallback_threshold
+        self.last_response_sources: List[Dict[str, Any]] = []
+        self.last_routing_info: Dict[str, Any] = {}
         self.setup_typhoon()
         self.conversation_history = []
+        self.qa_manager: Optional[QAPromptManager] = None
+
+        try:
+            self.qa_manager = QAPromptManager(
+                excel_path=qa_excel_path,
+                json_path=qa_json_path,
+                embedding_model=self.knowledge_base.model,
+                match_threshold=qa_match_threshold,
+            )
+            sync_result = self.qa_manager.sync_from_excel(preserve_answers=True)
+            status = "updated" if sync_result["updated"] else "loaded"
+            print(
+                f"✅ QA prompt {status}: {sync_result['count']} items "
+                f"({sync_result['json_path']})"
+            )
+        except Exception as e:
+            print(f"⚠️ ไม่สามารถโหลด QA prompt manager ได้: {e}")
+            self.qa_manager = None
 
     def setup_typhoon(self):
         """Initialize Typhoon API"""
@@ -534,19 +567,61 @@ class TyphoonChatbot:
 
         return compressed_contexts if compressed_contexts else contexts[:2]
 
+    @staticmethod
+    def _build_qa_fallback_context(qa_match: Dict[str, Any]) -> str:
+        """Build context string when QA fallback is selected."""
+        return (
+            "ข้อมูลที่เกี่ยวข้องจากฐานความรู้:\n\n"
+            "QA_FALLBACK\n"
+            f"คำถามที่ตรงกัน: {qa_match.get('question', '')}\n"
+            f"คำตอบ: {qa_match.get('answer', '')}\n"
+            f"หมวดหมู่: {qa_match.get('category', '')}\n"
+            f"เอกสาร: {qa_match.get('source_document', '')}\n"
+            f"คะแนนความเกี่ยวข้อง: {qa_match.get('combined_score', 0.0):.3f}\n"
+        )
+
+    def _prepare_prompt_context(self, user_question: str) -> str:
+        """Prepare retrieval context and routing metadata before generating prompt."""
+        expanded_query = self.expand_query(user_question)
+        relevant_knowledge = self.knowledge_base.search_knowledge(expanded_query, n_results=10)
+        max_raw_vector_similarity = max(
+            (
+                item.get(
+                    "max_raw_vector_similarity",
+                    item.get("raw_vector_similarity", 0.0),
+                )
+                for item in relevant_knowledge
+            ),
+            default=0.0,
+        )
+
+        self.last_routing_info = {
+            "expanded_query": expanded_query,
+            "max_raw_vector_similarity": max_raw_vector_similarity,
+            "vector_fallback_threshold": self.vector_fallback_threshold,
+            "used_source": "vector",
+        }
+
+        if max_raw_vector_similarity < self.vector_fallback_threshold and self.qa_manager:
+            qa_match = self.qa_manager.find_best_match(user_question, expanded_query=expanded_query)
+            if qa_match:
+                qa_context = self._build_qa_fallback_context(qa_match)
+                self.last_response_sources = [{
+                    "source_type": "qa_fallback",
+                    **qa_match,
+                }]
+                self.last_routing_info["used_source"] = "qa_fallback"
+                return qa_context
+
+        self.last_response_sources = [
+            {"source_type": "vector", **item}
+            for item in relevant_knowledge
+        ]
+        return self.knowledge_base.get_context_string(relevant_knowledge)
+
     def create_prompt(self, user_question: str) -> str:
         """Create a comprehensive prompt with context"""
-        # Expand query for better search
-        expanded_query = self.expand_query(user_question)
-
-        # Search for relevant knowledge with more results
-        relevant_knowledge = self.knowledge_base.search_knowledge(expanded_query, n_results=10)
-
-        # Apply context compression if enabled (ปิดไว้เพื่อความรวดเร็ว)
-        # if self.use_compression:
-        #     relevant_knowledge = self.compress_context(user_question, relevant_knowledge)
-
-        context = self.knowledge_base.get_context_string(relevant_knowledge)
+        context = self._prepare_prompt_context(user_question)
 
         prompt = f"""คุณคือ "Askgiraffe" ผู้ช่วยให้คำปรึกษาเกี่ยวกับหลักสูตรและการรับสมัครนักศึกษา
 ของคณะครุศาสตร์อุตสาหกรรม มหาวิทยาลัยเทคโนโลยีพระจอมเกล้าพระนครเหนือ (มจพ.)
@@ -593,6 +668,9 @@ class TyphoonChatbot:
             max_history_turns: Maximum number of previous conversation turns to include (default: 3)
         """
         try:
+            self.last_response_sources = []
+            self.last_routing_info = {}
+
             # Create prompt with knowledge base context
             prompt = self.create_prompt(user_input)
 
@@ -632,11 +710,21 @@ class TyphoonChatbot:
             print(f"เกิดข้อผิดพลาด: {e}")
             if "model not found" in str(e).lower():
                 print("💡 ตรวจสอบค่า TYPHOON_MODEL ให้ตรงกับโมเดลที่ใช้งานได้")
+            self.last_response_sources = []
+            self.last_routing_info = {"error": str(e)}
             return "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
 
     def get_conversation_history(self) -> List[Dict[str, str]]:
         """Get conversation history"""
         return self.conversation_history
+
+    def get_last_response_sources(self) -> List[Dict[str, Any]]:
+        """Get metadata of sources used for the latest response."""
+        return self.last_response_sources
+
+    def get_last_routing_info(self) -> Dict[str, Any]:
+        """Get retrieval routing details for debugging/inspection."""
+        return self.last_routing_info
 
     def clear_history(self):
         """Clear conversation history"""

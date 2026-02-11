@@ -1,0 +1,55 @@
+{
+  "config": "quick_eval_full_stack",
+  "timestamp": "20260211_211006",
+  "metrics": {
+    "context_precision": 0.6791666666496875,
+    "context_recall": 0.8,
+    "faithfulness": 0.6666666666666666,
+    "answer_relevancy": 0.0
+  },
+  "coverage": {
+    "context_precision": {
+      "valid": 1,
+      "total": 5,
+      "ratio": 0.2
+    },
+    "context_recall": {
+      "valid": 5,
+      "total": 5,
+      "ratio": 1.0
+    },
+    "faithfulness": {
+      "valid": 1,
+      "total": 5,
+      "ratio": 0.2
+    },
+    "answer_relevancy": {
+      "valid": 0,
+      "total": 5,
+      "ratio": 0.0
+    }
+  },
+  "raw_counts": {
+    "context_precision": {
+      "valid": 1,
+      "invalid": 4,
+      "total": 5
+    },
+    "context_recall": {
+      "valid": 5,
+      "invalid": 0,
+      "total": 5
+    },
+    "faithfulness": {
+      "valid": 1,
+      "invalid": 4,
+      "total": 5
+    },
+    "answer_relevancy": {
+      "valid": 0,
+      "invalid": 5,
+      "total": 5
+    }
+  },
+  "evaluator": "google/gemini-2.0-flash"
+}

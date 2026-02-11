@@ -397,6 +397,72 @@ st.markdown(f"""
     ::-webkit-scrollbar-thumb:hover {{
         background: linear-gradient(135deg, #059669 0%, #047857 100%);
     }}
+
+    /* Welcome Mode */
+    .welcome-stage {{
+        min-height: 48vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+    }}
+
+    .welcome-card {{
+        width: 100%;
+        max-width: 820px;
+        padding: 2.25rem 2rem;
+        border-radius: 1.25rem;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 253, 244, 0.95) 100%);
+        border: 2px solid #A7F3D0;
+        box-shadow: 0 10px 26px rgba(5, 150, 105, 0.16);
+        text-align: center;
+    }}
+
+    .welcome-title {{
+        color: #047857;
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+        line-height: 1.35;
+    }}
+
+    .welcome-subtitle {{
+        color: #1F2937;
+        font-size: 1.05rem;
+        font-weight: 400;
+        line-height: 1.8;
+        margin: 0;
+    }}
+
+    .welcome-input-caption {{
+        text-align: center;
+        color: #047857;
+        font-size: 0.95rem;
+        font-weight: 500;
+        margin-bottom: 0.65rem;
+    }}
+
+    @media (max-width: 768px) {{
+        .welcome-stage {{
+            min-height: 40vh;
+            margin-top: 1rem;
+        }}
+
+        .welcome-card {{
+            padding: 1.5rem 1.25rem;
+            border-radius: 1rem;
+        }}
+
+        .welcome-title {{
+            font-size: 1.5rem;
+        }}
+
+        .welcome-subtitle {{
+            font-size: 0.98rem;
+            line-height: 1.7;
+        }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -430,15 +496,43 @@ if 'messages' not in st.session_state:
 if 'show_context' not in st.session_state:
     st.session_state.show_context = False
 
-if 'last_contexts' not in st.session_state:
-    st.session_state.last_contexts = []
+if 'pending_user_input' not in st.session_state:
+    st.session_state.pending_user_input = None
 
-# Default search settings
-n_results = 10
-bm25_weight = 0.3
-vector_weight = 0.5
-keyword_weight = 0.2
-show_context = False
+
+def process_user_input(user_input: str):
+    """Store user message immediately, then trigger response generation on next rerun."""
+    if not user_input:
+        return
+
+    # Add user message to chat
+    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    # Defer model generation to next rerun so user question appears instantly
+    st.session_state.pending_user_input = user_input
+    st.rerun()
+
+
+def process_pending_response():
+    """Generate bot response for a queued user message."""
+    pending_input = st.session_state.pending_user_input
+    if not pending_input:
+        return
+
+    # Generate response
+    with st.spinner('🤔 กำลังคิดคำตอบ...'):
+        response = chatbot.chat(pending_input)
+        response_sources = chatbot.get_last_response_sources()
+
+    # Add bot response to chat
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": response,
+        "sources": response_sources,
+    })
+
+    st.session_state.pending_user_input = None
+    st.rerun()
 
 # Sidebar Configuration
 with st.sidebar:
@@ -450,9 +544,15 @@ with st.sidebar:
     # Clear history button
     if st.button("🗑️ ล้างประวัติการสนทนา", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.pending_user_input = None
         chatbot.clear_history()
-        st.session_state.last_contexts = []
         st.rerun()
+
+    st.session_state.show_context = st.checkbox(
+        "📚 แสดงข้อมูลอ้างอิง",
+        value=st.session_state.show_context,
+        help="แสดงแหล่งข้อมูลที่ใช้ตอบจริง (vector หรือ QA fallback)",
+    )
 
     st.markdown("---")
 
@@ -479,76 +579,93 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# Header
-st.markdown(f'<div class="main-header"><img src="data:image/png;base64,{bot_logo}" style="width: 200px; height: 200px; vertical-align: middle; margin-right: 15px;"> Askgiraffe</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">ผู้ช่วยให้คำปรึกษาหลักสูตร คณะครุศาสตร์อุตสาหกรรม มจพ.</div>', unsafe_allow_html=True)
+is_welcome_mode = len(st.session_state.messages) == 0
+is_waiting_response = st.session_state.pending_user_input is not None
 
-# Main chat area
-st.markdown('<h3 style="color: #000000; font-weight: 600; font-size: 1.5rem; margin-bottom: 1rem;">💬 พื้นที่แชท</h3>', unsafe_allow_html=True)
-
-# Display chat messages
-for i, message in enumerate(st.session_state.messages):
-    if message["role"] == "user":
-        st.markdown(f'''
-        <div class="chat-message user-message">
-            <div class="message-label user-label">🙋 คุณ:</div>
-            <div>{message["content"]}</div>
+if is_welcome_mode:
+    st.markdown(
+        """
+        <div class="welcome-stage">
+            <div class="welcome-card">
+                <div class="welcome-title">สวัสดีครับ 👋 ยินดีต้อนรับสู่ Askgiraffe</div>
+                <p class="welcome-subtitle">
+                    ผมพร้อมช่วยตอบคำถามเกี่ยวกับหลักสูตรคณะครุศาสตร์อุตสาหกรรม มจพ.<br>
+                    พิมพ์คำถามของคุณได้เลย แล้วผมจะช่วยค้นหาคำตอบให้อย่างรวดเร็ว
+                </p>
+            </div>
         </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.markdown(f'''
-        <div class="chat-message bot-message">
-            <div class="message-label bot-label"><img src="data:image/png;base64,{bot_logo}" style="width: 28px; height: 28px; vertical-align: middle; margin-right: 8px;"> Askgiraffe:</div>
-            <div>{message["content"]}</div>
-        </div>
-        ''', unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
+    _, center_col, _ = st.columns([1, 2.5, 1])
+    with center_col:
+        st.markdown('<div class="welcome-input-caption">เริ่มถามคำถามแรกของคุณได้ที่นี่</div>', unsafe_allow_html=True)
+        welcome_input = st.chat_input(
+            "✨ พิมพ์คำถามของคุณที่นี่... (กด Enter เพื่อส่ง)",
+            key="chat_input_welcome",
+            disabled=is_waiting_response,
+        )
+    process_user_input(welcome_input)
+else:
+    # Header
+    st.markdown(f'<div class="main-header"><img src="data:image/png;base64,{bot_logo}" style="width: 200px; height: 200px; vertical-align: middle; margin-right: 15px;"> Askgiraffe</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">ผู้ช่วยให้คำปรึกษาหลักสูตร คณะครุศาสตร์อุตสาหกรรม มจพ.</div>', unsafe_allow_html=True)
 
-        # Show context if enabled and available
-        if st.session_state.show_context and i < len(st.session_state.last_contexts):
-            contexts = st.session_state.last_contexts[i]
-            if contexts:
-                with st.expander(f"📚 เอกสารอ้างอิง ({len(contexts)} รายการ)", expanded=False):
-                    for ctx in contexts:
-                        score_info = f"🎯 Score: {ctx.get('score', 0):.3f}"
-                        if 'rerank_score' in ctx:
-                            score_info += f" | Rerank: {ctx.get('rerank_score', 0):.3f}"
+    # Main chat area
+    st.markdown('<h3 style="color: #000000; font-weight: 600; font-size: 1.5rem; margin-bottom: 1rem;">💬 พื้นที่แชท</h3>', unsafe_allow_html=True)
 
-                        st.markdown(f"""
-                        **รายการที่ {ctx.get('rank', 0)}** | {score_info}
+    # Display chat messages
+    for i, message in enumerate(st.session_state.messages):
+        if message["role"] == "user":
+            st.markdown(f'''
+            <div class="chat-message user-message">
+                <div class="message-label user-label">🙋 คุณ:</div>
+                <div>{message["content"]}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+        else:
+            st.markdown(f'''
+            <div class="chat-message bot-message">
+                <div class="message-label bot-label"><img src="data:image/png;base64,{bot_logo}" style="width: 28px; height: 28px; vertical-align: middle; margin-right: 8px;"> Askgiraffe:</div>
+                <div>{message["content"]}</div>
+            </div>
+            ''', unsafe_allow_html=True)
 
-                        {ctx.get('text', '')}
-                        """)
+            # Show context if enabled and available
+            if st.session_state.show_context and message.get("sources"):
+                sources = message["sources"]
+                with st.expander(f"📚 เอกสารอ้างอิง ({len(sources)} รายการ)", expanded=False):
+                    for source in sources:
+                        source_type = source.get("source_type", "vector")
+                        if source_type == "qa_fallback":
+                            st.markdown(
+                                f"""**QA_FALLBACK**
+                                - หมวดหมู่: {source.get('category', '')}
+                                - เอกสาร: {source.get('source_document', '')}
+                                - คะแนนรวม: {source.get('combined_score', 0.0):.3f}
+                                - คำถาม: {source.get('question', '')}
+                                - คำตอบ: {source.get('answer', '')}
+                                """
+                            )
+                        else:
+                            score_info = f"🎯 Score: {source.get('score', 0):.3f}"
+                            if 'rerank_score' in source:
+                                score_info += f" | Rerank: {source.get('rerank_score', 0):.3f}"
+                            score_info += f" | Raw Vector: {source.get('raw_vector_similarity', 0):.3f}"
+
+                            st.markdown(
+                                f"""**รายการที่ {source.get('rank', 0)}** | {score_info}
+
+                                {source.get('text', '')}
+                                """
+                            )
                         st.markdown("---")
 
-# Chat input with enhanced styling
-user_input = st.chat_input("✨ พิมพ์คำถามของคุณที่นี่... (กด Enter เพื่อส่ง)")
-
-if user_input:
-    # Add user message to chat
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    # Get expanded query for search
-    expanded_query = chatbot.expand_query(user_input)
-
-    # Search for relevant knowledge
-    with st.spinner('🔍 กำลังค้นหาข้อมูล...'):
-        relevant_knowledge = chatbot.knowledge_base.search_knowledge(
-            expanded_query,
-            n_results=n_results,
-            bm25_weight=bm25_weight,
-            vector_weight=vector_weight,
-            keyword_weight=keyword_weight
-        )
-
-    # Store contexts for this response
-    st.session_state.last_contexts.append(relevant_knowledge)
-
-    # Generate response
-    with st.spinner('🤔 กำลังคิดคำตอบ...'):
-        response = chatbot.chat(user_input)
-
-    # Add bot response to chat
-    st.session_state.messages.append({"role": "assistant", "content": response})
-
-    # Rerun to display new messages
-    st.rerun()
+    # Chat input with enhanced styling
+    chat_input = st.chat_input(
+        "✨ พิมพ์คำถามของคุณที่นี่... (กด Enter เพื่อส่ง)",
+        key="chat_input_bottom",
+        disabled=is_waiting_response,
+    )
+    process_user_input(chat_input)
+    process_pending_response()
